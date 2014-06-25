@@ -1,9 +1,14 @@
+# Low-level communication - from functions to bytecodes
+
+# not really needed
 import time
 
+# Here we need to define all opcodes
 opOUTPUT_STEP_SPEED = 174
 
 DIRECT_COMMAND_NO_REPLY	      = 0x80
 
+# These constants and functions are used for parameter encoding process as described in Communication Developer Kit
 PRIMPAR_SHORT                 = 0x00
 PRIMPAR_LONG                  = 0x80
 
@@ -53,6 +58,7 @@ def GV4(i):                     return [(PRIMPAR_LONG  | PRIMPAR_VARIABEL | PRIM
 def GVA(h):                     return [(PRIMPAR_LONG  | PRIMPAR_VARIABEL | PRIMPAR_GLOBAL | PRIMPAR_1_BYTE | PRIMPAR_ARRAY),(i & 0xFF)]
 
 
+# For each operation we need to create special function
 def output_step_speed(layer, motors, speed, step1, step2, step3, brake):
 	return [opOUTPUT_STEP_SPEED] + LC0(layer) + LC0(motors) + LC1(speed) + LC0(step1) + LC2(step2) + LC2(step3) + LC0(brake)
 
@@ -67,6 +73,8 @@ class RawDevice:
 		batch = [len(batch) & 0xFF, (len(batch) >> 8) & 0xFF] + batch
 		self.comm.write(bytearray(batch))	
 
+
+# Just a usecase
 raw = RawDevice('/dev/rfcomm1')
 raw.send_command_noreply(output_step_speed(0, 1, 50, 0, 900, 180, 1) + output_step_speed(0, 6, 50, 0, 900, 180, 1))
 
