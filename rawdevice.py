@@ -2,6 +2,7 @@
 
 # Not really needed
 import time
+from struct import pack
 
 # These constants and functions are used for parameter encoding process as described in Communication Developer Kit
 PRIMPAR_SHORT                 = 0x00
@@ -34,11 +35,14 @@ def HND(x):                     return [PRIMPAR_HANDLE | x]
 def ADR(x):                     return [PRIMPAR_ADDR | x]
 def LAB1(v):                    return [(PRIMPAR_LONG | PRIMPAR_LABEL),(v & 0xFF)]
 
-def LC0(v):                     return [((v & PRIMPAR_VALUE) | PRIMPAR_SHORT | PRIMPAR_CONST)]
-def LC1(v):                     return [(PRIMPAR_LONG  | PRIMPAR_CONST | PRIMPAR_1_BYTE),(v & 0xFF)]
-def LC2(v):                     return [(PRIMPAR_LONG  | PRIMPAR_CONST | PRIMPAR_2_BYTES),(v & 0xFF),((v >> 8) & 0xFF)]
-def LC4(v):                     return [(PRIMPAR_LONG  | PRIMPAR_CONST | PRIMPAR_4_BYTES),(v & 0xFF),((v >> 8) & 0xFF),((v >> 16) & 0xFF),((v >> 24) & 0xFF)]
-def LCA(h):                     return [(PRIMPAR_LONG  | PRIMPAR_CONST | PRIMPAR_1_BYTE | PRIMPAR_ARRAY),(i & 0xFF)]
+# such ugliness to save function call overhead
+def LCA(h):                     return bytes([(PRIMPAR_LONG  | PRIMPAR_CONST | PRIMPAR_1_BYTE | PRIMPAR_ARRAY),(i & 0xFF)])
+
+def lc(v):
+	if v.bit_length() <= 5: return [v & 0x3F] 						# 00______
+	elif v.bit_length() <= 7: return [0x81, v & 0xFF] 						# 01000001 ________
+	elif v.bit_length() <= 15: return [0x82, v & 0xFF, v >> 8] 				# 01000010 ________ ________
+	else: return [0x83, v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF, (v >> 24) & 0xFF] 	# 01000011 ________ ________ ________
 
 def LV0(i):                     return [((i & PRIMPAR_INDEX) | PRIMPAR_SHORT | PRIMPAR_VARIABEL | PRIMPAR_LOCAL)]
 def LV1(i):                     return [(PRIMPAR_LONG  | PRIMPAR_VARIABEL | PRIMPAR_LOCAL | PRIMPAR_1_BYTE),(i & 0xFF)]
@@ -55,30 +59,55 @@ def GVA(h):                     return [(PRIMPAR_LONG  | PRIMPAR_VARIABEL | PRIM
 
 # For each operation we need to create special function
 # Incorporating opcodes as magic, as they are used only once and we do no want to produce redundant entities
+# Small params (apriori positive and less than six bits) are not sent to encoding to avoid overhead
 def output_step_speed(layer, motors, speed, step1, step2, step3, brake):
-	return [174] + LC0(layer) + LC0(motors) + LC1(speed) + LC0(step1) + LC2(step2) + LC2(step3) + LC0(brake)
+	return [174, layer, motors] + lc(speed) + lc(step1) + lc(step2) + lc(step3) + [brake]
+
+def input_read(layer, port, devtype, mode):
+	return [0x9A, layer, port] +lc(devtype) + lc(mode)
 
 class RawDevice:
 	device = None
 	def __init__(self, s):
-		self.device = open(s, 'w', 0)
+		self.device = open(s, 'w+b', 0)
 	def __del___(self):
 		self.device.close()
 	
-	# Sends batch of commands to the robot
+	# Sends batch of commands to the robot without reply request 
 	# bytes 1-2 are the batch length
 	# bytes 3-4 are message counter, but nobody seems to give a fuck about them, so we set them to zero for now
 	# byte 5 is a magic code meaning DIRECT_COMMAND_NO_REPLY 
 	# bytes 6-7 are variable reservation, I don't understand how it works
-	def send_command_noreply(self, batch):
+	def send_command_no_reply(self, batch):
 		batch = [0, 0, 0x80, 0, 0] + batch		
-		batch = [len(batch) & 0xFF, (len(batch) >> 8) & 0xFF] + batch
-		self.device.write(bytearray(batch))	
+		batch = [len(batch) & 0xFF, len(batch) >> 8] + batch
+		self.device.write(bytes(batch))
+	
+	# Sends batch of commands to the robot with reply request
+	# bytes 1-2 are the batch length
+	# bytes 3-4 are message counter, but nobody seems to give a fuck about them, so we set them to zero for now
+	# byte 5 is a magic code meaning DIRECT_COMMAND_REPLY 
+	# bytes 6-7 are variable reservation, I don't understand how it works
+	def send_command_reply(self, batch):
+		batch = [0, 0, 0x00, 0x01, 0x00] + batch + GV0(0)	
+		batch = [len(batch) & 0xFF, len(batch) >> 8] + batch 
+		print(batch)		
+		self.device.write(bytes(batch))	
+	
 
 
 # Just a usecase
 raw = RawDevice('/dev/rfcomm1')
-raw.send_command_noreply(output_step_speed(0, 1, 50, 0, 900, 180, 1) + output_step_speed(0, 6, 50, 0, 900, 180, 1))
+
+raw.send_command_no_reply(output_step_speed(0, 1, 25, 0, 1620, 180, 1))
+raw.send_command_no_reply(output_step_speed(0, 2, -50, 0, 1620, 180, 1))
+raw.send_command_no_reply(output_step_speed(0, 4, +50, 0, 1620, 180, 1))
+while True:
+	raw.send_command_reply(input_read(0, 3, 33, 0))
+	time.sleep(0.001)	
+	print(raw.device.read(6))
+	
+print(raw.device.flush())
 
 
 
