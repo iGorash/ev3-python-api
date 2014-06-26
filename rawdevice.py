@@ -1,19 +1,14 @@
 # Low-level communication - from functions to bytecodes
 
-# not really needed
+# Not really needed
 import time
-
-# Here we need to define all opcodes
-opOUTPUT_STEP_SPEED = 174
-
-DIRECT_COMMAND_NO_REPLY	      = 0x80
 
 # These constants and functions are used for parameter encoding process as described in Communication Developer Kit
 PRIMPAR_SHORT                 = 0x00
 PRIMPAR_LONG                  = 0x80
 
 PRIMPAR_CONST                 = 0x00
-PRIMPAR_VARIABEL              = 0x40
+PRIMPAR_VARIABEL              = 0x40 # sic! Danes are so Danish
 PRIMPAR_LOCAL                 = 0x00
 PRIMPAR_GLOBAL                = 0x20
 PRIMPAR_HANDLE                = 0x10
@@ -59,19 +54,26 @@ def GVA(h):                     return [(PRIMPAR_LONG  | PRIMPAR_VARIABEL | PRIM
 
 
 # For each operation we need to create special function
+# Incorporating opcodes as magic, as they are used only once and we do no want to produce redundant entities
 def output_step_speed(layer, motors, speed, step1, step2, step3, brake):
-	return [opOUTPUT_STEP_SPEED] + LC0(layer) + LC0(motors) + LC1(speed) + LC0(step1) + LC2(step2) + LC2(step3) + LC0(brake)
+	return [174] + LC0(layer) + LC0(motors) + LC1(speed) + LC0(step1) + LC2(step2) + LC2(step3) + LC0(brake)
 
 class RawDevice:
-	comm = None
+	device = None
 	def __init__(self, s):
-		self.comm = open(s, 'w', 0)
+		self.device = open(s, 'w', 0)
 	def __del___(self):
-		self.comm.close()
+		self.device.close()
+	
+	# Sends batch of commands to the robot
+	# bytes 1-2 are the batch length
+	# bytes 3-4 are message counter, but nobody seems to give a fuck about them, so we set them to zero for now
+	# byte 5 is a magic code meaning DIRECT_COMMAND_NO_REPLY 
+	# bytes 6-7 are variable reservation, I don't understand how it works
 	def send_command_noreply(self, batch):
-		batch = [0, 0, DIRECT_COMMAND_NO_REPLY, 0, 0] + batch		
+		batch = [0, 0, 0x80, 0, 0] + batch		
 		batch = [len(batch) & 0xFF, (len(batch) >> 8) & 0xFF] + batch
-		self.comm.write(bytearray(batch))	
+		self.device.write(bytearray(batch))	
 
 
 # Just a usecase
